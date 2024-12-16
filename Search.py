@@ -11,12 +11,13 @@ import torch
 import argparse
 import os, sys
 import pickle
+from collections import defaultdict
 from sentence_transformers import SentenceTransformer, models
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 class Searcher():
-    def __init__(self):
-        filepath = Path("DataBase")
+    def __init__(self, path="DataBase/default"):
+        filepath = Path(path)
         filenames = [filename for filename in filepath.iterdir() if filename.name.split('.')[1] == "csv"]
         df = None
         for filename in filenames:
@@ -33,6 +34,7 @@ class Searcher():
     def set_data(self, data):
         self.url = data.url
         self.title = data.title
+        self.tags = data.tags
         self.content = data.body
         return
         
@@ -42,22 +44,18 @@ class Searcher():
     def search(self):
         query = input("検索:")
         scores = self.simulate(query)
-        print(scores, len(scores))
         rank = np.argsort(scores)[::-1]
         print("{}:検索結果".format(query))
-        for i in rank[:20]:
+        for i in range(len(rank[:10])):
             if scores[i] > 0:
-                print(f"{i}: {self.title[i]} \n url: {self.url[i]} \n スコア:{scores[i]}")
+                print(f"Rank{i+1}: {self.title[rank[i]]} \n url: {self.url[rank[i]]}")
             else:
                 break
-        if input("検索を続けますか:y or n") == "y":
-            self.search()
-        else:
-            return
+        return
     
 class bm25(Searcher):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, path="DataBase/default"):
+        super().__init__(path)
         self.pattern = "!\#$%&\'\\\\()*+,./:;<=>?@[\\]^_`{|}~「」〔〕“”〈〉『』【】＆＊・（）＄＃＠。、？！｀＋￥％～■"
         with open("custom_stopwords_ja.json", 'r') as f:
             jsondata = json.load(f)
@@ -88,8 +86,8 @@ class bm25(Searcher):
         return scores
 
 class laai(Searcher):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, path="DataBase/default"):
+        super().__init__(path)
         MODEL_NAME = "cl-tohoku/bert-base-japanese-v3"
         bert = models.Transformer(MODEL_NAME)
         pooling = models.Pooling(
@@ -142,10 +140,10 @@ class laai(Searcher):
         return scores
 
 class hibrid(Searcher):
-    def __init__(self):
-        super().__init__()
-        self.bm = bm25()
-        self.labse = laai()
+    def __init__(self, path="DataBase/default"):
+        super().__init__(path)
+        self.bm = bm25(path)
+        self.labse = laai(path)
         with open("difficulty.pkl", mode="rb") as f:
             self.difficulty = pickle.load(f)
     
@@ -162,20 +160,40 @@ class hibrid(Searcher):
         for i in range(len(anc_score)):
             result[anc_score[i]] = i
         return result
+    
+    #単語頻度による各文書ごとの順位付け
+    def neary_cat(self, query):
+        difficulty_path = Path("Difficulty/word_value") #スコアが最も高いタグがクエリと関連性の高いタグとする
+        scoringfiles = [file for file in difficulty_path.iterdir()]
+        tagger = fugashi.Tagger(f"{unidic.DICDIR}")
+        words = [word.feature.lemma if not re.search("[a-zA-Z]+", word.surface) else word.surface.lower() for word in tagger(query)]
+        cats = [re.findall('(?<=_).+(?=\.)', scoreingfile.name)[0] for scoreingfile in scoringfiles]
+        check_cat = defaultdict(float)
+        for i in range(len(scoringfiles)):
+            scoringfile = scoringfiles[i]
+            check_cat[self.tags[i]] = 0
+            with open(scoringfile, mode='rb') as f:
+                wordvalue = pickle.load(f)
+                for word in words:
+                    if word in wordvalue.keys():
+                        check_cat[cats[i]] += wordvalue[word]
+        cat = max(check_cat.items(), key=lambda x: x[1])
+        return cat[0]
+    
+    def get_difficulty_score(self, query):
+        nearest_cat = self.neary_cat(query)
+        scoringfilepath = Path(f"Difficulty/difficulty_score/{nearest_cat}.pkl")
+        difficulty_df = pd.read_pickle(scoringfilepath)
+        return difficulty_df.index
 
     def simulate(self, query, k=60, question=True):
-        if question:
-            defficulty_rank = self.difficulty
-        else:
-            defficulty_rank = self.difficulty[::-1]
         keyword_score = self.bm.simulate(query)
         lm_score = self.labse.simulate(query)
         keyword_rank = np.argsort(keyword_score)[::-1]
         lm_rank = np.argsort(lm_score)[::-1]
         keyword_rank = self.get_rank_index(keyword_rank)
         lm_rank = self.get_rank_index(lm_rank)
-        difficulty_rank = self.get_rank_index(defficulty_rank)
-        del keyword_score, lm_score
+        difficulty_rank = self.get_difficulty_score(query)
         scores = self.get_score(keyword_rank, lm_rank, difficulty_rank, k)
         return scores
 
