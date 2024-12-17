@@ -94,6 +94,7 @@ class laai(Searcher):
         bert.get_word_embedding_dimension(),
         pooling_mode_mean_tokens=True,
         )
+        
         if torch.cuda.is_available():
             device = "cuda:0"
             self.model = SentenceTransformer(modules=[bert, pooling], device=device)
@@ -101,10 +102,8 @@ class laai(Searcher):
         else:
             device = "cpu"
             self.model = SentenceTransformer(modules=[bert, pooling], device=device)
-            self.model.load_state_dict(torch.load('models/after-pre-train2.pth', torch.device(device)))
+            self.model.load_state_dict(torch.load('models/after-pre-train2.pth', map_location='cpu'))
         print(device)
-        
-        self.model.load_state_dict(torch.load('models/after-pre-train2.pth'))
         print("言語モデルの読み込みができました")
         filepath = "corpus_vector/qiita-train2.pkl"
         if os.path.exists(filepath):
