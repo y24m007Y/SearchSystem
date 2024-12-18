@@ -143,8 +143,9 @@ class laai(Searcher):
         return scores
 
 class hibrid(Searcher):
-    def __init__(self, path="DataBase/default"):
+    def __init__(self, guess_difficulty=False, path="DataBase/default"):
         super().__init__(path)
+        self.guess_difficulty = guess_difficulty
         self.bm = bm25(path)
         self.labse = laai(path)
         with open("difficulty.pkl", mode="rb") as f:
@@ -189,15 +190,19 @@ class hibrid(Searcher):
         difficulty_df = pd.read_pickle(scoringfilepath)
         return difficulty_df.index
 
-    def simulate(self, query, k=60, question=True):
+    def simulate(self, query, k=60):
         keyword_score = self.bm.simulate(query)
         lm_score = self.labse.simulate(query)
         keyword_rank = np.argsort(keyword_score)[::-1]
         lm_rank = np.argsort(lm_score)[::-1]
         keyword_rank = self.get_rank_index(keyword_rank)
         lm_rank = self.get_rank_index(lm_rank)
-        difficulty_rank = self.get_difficulty_score(query)
-        scores = self.get_score(keyword_rank, lm_rank, difficulty_rank, k)
+        if self.guess_difficulty:
+            difficulty_rank = self.get_difficulty_score(query) #難易度を考慮する場合
+            scores = self.get_score(keyword_rank, lm_rank, difficulty_rank, k)
+        else:
+            difficulty_rank = np.zeros(len(self.title)) #難易度を考慮しない場合
+            scores = self.get_score(keyword_rank, lm_rank, difficulty_rank, k)
         return scores
 
     
