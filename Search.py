@@ -188,7 +188,7 @@ class hibrid(Searcher):
         nearest_cat = self.neary_cat(query)
         scoringfilepath = Path(f"Difficulty/difficulty_score/{nearest_cat}.pkl")
         difficulty_df = pd.read_pickle(scoringfilepath)
-        return difficulty_df.index
+        return difficulty_df.index[::-1]
 
     def simulate(self, query, k=60):
         keyword_score = self.bm.simulate(query)
